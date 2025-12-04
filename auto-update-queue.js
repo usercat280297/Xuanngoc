@@ -65,19 +65,20 @@ async function getGameImage(appId) {
 async function createDiscordPayload(gameName, news, appId) {
   const gameImage = await getGameImage(appId);
   
+  // Parse description từ news
   let description = news.contents || news.title || 'A new version of the game has been released on the public branch.';
   description = description.replace(/<[^>]*>/g, '').trim();
   
-  if (description.length > 350) {
-    description = description.substring(0, 347) + '...';
+  if (description.length > 300) {
+    description = description.substring(0, 297) + '...';
   }
   
-  description = `*${description}*`;
-  
-  const timeStr = new Date().toLocaleTimeString('vi-VN', { 
+  // Format time theo kiểu "Hôm nay lúc 9:01 SA"
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('vi-VN', { 
     hour: '2-digit', 
-    minute: '2-digit', 
-    hour12: false 
+    minute: '2-digit',
+    hour12: false
   });
   
   const newsLink = news.url || `https://store.steampowered.com/news/app/${appId}`;
@@ -88,14 +89,14 @@ async function createDiscordPayload(gameName, news, appId) {
         name: "Game Update Detected",
         icon_url: "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/593110/0bbb630d63262dd66d2fdd0f7d37e8661a410075.jpg"
       },
-      color: 0x8B7EE8,
-      description: `**${gameName}**\n\n${description}`,
+      color: 0x5865F2, // Discord blurple color
+      title: gameName,
+      description: description,
       image: gameImage ? { url: gameImage } : undefined,
       footer: {
-        text: `Steam News Monitor • Hôm nay lúc ${timeStr}`,
+        text: `Hôm nay lúc ${timeStr}`,
         icon_url: "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/steamworks_docs/english/steam_icon.png"
-      },
-      timestamp: new Date().toISOString()
+      }
     }],
     components: [{
       type: 1,
@@ -103,7 +104,10 @@ async function createDiscordPayload(gameName, news, appId) {
         type: 2,
         style: 5,
         label: "View Patch",
-        url: newsLink
+        url: newsLink,
+        emoji: {
+          name: "🔗"
+        }
       }]
     }]
   };
