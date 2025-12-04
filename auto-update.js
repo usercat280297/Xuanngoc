@@ -18,6 +18,31 @@ try {
 
 let lastNewsIds = {};
 
+// File lưu trạng thái
+const STATE_FILE = 'last_news_state.json';
+
+// Đọc trạng thái cũ (nếu có)
+try {
+  if (fs.existsSync(STATE_FILE)) {
+    const stateData = fs.readFileSync(STATE_FILE, 'utf8');
+    lastNewsIds = JSON.parse(stateData);
+    console.log("📂 Đã load trạng thái từ file:", Object.keys(lastNewsIds).length, "game");
+  }
+} catch (error) {
+  console.log("⚠️ Không thể đọc file trạng thái, bắt đầu mới");
+  lastNewsIds = {};
+}
+
+// Lưu trạng thái vào file
+function saveState() {
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(lastNewsIds, null, 2));
+    console.log("💾 Đã lưu trạng thái");
+  } catch (error) {
+    console.error("❌ Lỗi khi lưu trạng thái:", error.message);
+  }
+}
+
 // Lấy hình ảnh header từ Steam Store
 async function getGameImage(appId) {
   try {
@@ -32,7 +57,7 @@ async function getGameImage(appId) {
   return null;
 }
 
-// Gửi thông báo Discord với format đẹp giống SteamDB
+// Gửi thông báo Discord với format đẹp + button
 async function sendGameUpdate(gameName, news, appId) {
   // Lấy hình ảnh game
   const gameImage = await getGameImage(appId);
@@ -43,36 +68,59 @@ async function sendGameUpdate(gameName, news, appId) {
   // Xóa HTML tags nếu có
   description = description.replace(/<[^>]*>/g, '');
   
-  if (description.length > 400) {
-    description = description.substring(0, 397) + '...';
+  // Format text đẹp hơn
+  if (description.length > 350) {
+    description = description.substring(0, 347) + '...';
   }
+  
+  // Thêm format in nghiêng cho mô tả
+  description = `*${description}*`;
 
   // Tạo link đến bài viết gốc
   const newsLink = news.url || `https://store.steampowered.com/news/app/${appId}`;
 
-  // Tạo embed message
-  const embed = {
+  // Format thời gian đẹp
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  
+  // Tạo embed message với button
+  const payload = {
     embeds: [{
-      title: "Game Update Detected",
-      color: 0x9370DB, // Màu tím đẹp
-      fields: [
-        {
-          name: gameName,
-          value: description + `\n\n🔗 [View Patch](${newsLink})`,
-          inline: false
-        }
-      ],
+      author: {
+        name: "Game Update Detected",
+        icon_url: "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/593110/0bbb630d63262dd66d2fdd0f7d37e8661a410075.jpg"
+      },
+      color: 0x8B7EE8,
+      description: `**${gameName}**\n\n${description}`,
       image: gameImage ? { url: gameImage } : undefined,
       footer: {
-        text: "Steam News Monitor • Hôm nay lúc " + new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false })
+        text: `Steam News Monitor • Hôm nay lúc ${timeStr}`,
+        icon_url: "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/steamworks_docs/english/steam_icon.png"
       },
       timestamp: new Date().toISOString()
-    }]
+    }],
+    // Thêm button "View Patch" với emoji đẹp
+    components: [
+      {
+        type: 1, // Action Row
+        components: [
+          {
+            type: 2, // Button
+            style: 5, // Link style
+            label: "View Patch",
+            url: newsLink
+          }
+        ]
+      }
+    ]
   };
 
   try {
-    await axios.post(webhookURL, embed);
+    await axios.post(webhookURL, payload);
     console.log(`✅ Đã gửi thông báo update cho ${gameName}`);
+    
+    // Thêm delay 1 giây giữa các message để tránh spam
+    await new Promise(resolve => setTimeout(resolve, 1000));
   } catch (error) {
     console.error(`❌ Lỗi khi gửi webhook cho ${gameName}:`, error.response?.data || error.message);
   }
@@ -99,9 +147,20 @@ async function checkGameUpdate(game) {
 
     const newId = latestNews.gid;
 
-    if (!lastNewsIds[name] || newId !== lastNewsIds[name]) {
+    // Nếu chưa có trong state -> Lần đầu chạy, chỉ lưu không gửi
+    if (!lastNewsIds[name]) {
+      console.log(`📌 Lần đầu check ${name}, lưu trạng thái (không gửi tin nhắn)`);
+      lastNewsIds[name] = newId;
+      saveState();
+      return;
+    }
+
+    // Nếu có update MỚI -> Gửi tin nhắn
+    if (newId !== lastNewsIds[name]) {
+      console.log(`🆕 ${name} có update mới!`);
       await sendGameUpdate(name, latestNews, appId);
       lastNewsIds[name] = newId;
+      saveState();
     } else {
       console.log(`⏸ Không có update mới cho ${name}`);
     }
@@ -113,6 +172,8 @@ async function checkGameUpdate(game) {
 // Chạy lần đầu và lặp lại mỗi 10 phút
 (async () => {
   console.log("🚀 Bot khởi động...");
+  
+  // Check từng game, mỗi game là 1 message riêng
   for (const game of games) {
     await checkGameUpdate(game);
   }
