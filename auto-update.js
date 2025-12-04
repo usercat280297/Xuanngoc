@@ -3,7 +3,6 @@ const fs = require('fs');
 require('dotenv').config();
 
 const webhookURL = process.env.WEBHOOK_URL;
-// XÓA dòng này: const steamAPIKey = process.env.STEAM_API_KEY;
 
 let games = [];
 try {
@@ -19,15 +18,31 @@ try {
 
 let lastNewsIds = {};
 
-// Gửi thông báo Discord
+// Gửi thông báo Discord với format đẹp
 async function sendGameUpdate(gameName, news) {
+  // Cắt ngắn content nếu quá dài
+  let content = news.contents || news.title || 'A new version of the game has been released on the public branch.';
+  if (content.length > 2000) {
+    content = content.substring(0, 1997) + '...';
+  }
+
+  // Tạo embed message với format giống SteamDB
   const embed = {
     embeds: [{
-      title: `🎮 ${gameName} Update`,
-      description: news.title,
-      url: news.url,
-      color: 0x5865F2,
-      footer: { text: "Steam Web API Monitor" }
+      title: "Game Update Detected",
+      description: `**${gameName}**\n\n${content}`,
+      color: 0x6441A5, // Màu tím giống Discord
+      url: news.url || `https://store.steampowered.com/app/${news.appid}`,
+      timestamp: new Date(news.date * 1000).toISOString(),
+      footer: {
+        text: "Steam News Monitor"
+      },
+      // Thêm thumbnail nếu có
+      ...(news.image && { 
+        image: { 
+          url: news.image 
+        } 
+      })
     }]
   };
 
@@ -35,7 +50,7 @@ async function sendGameUpdate(gameName, news) {
     await axios.post(webhookURL, embed);
     console.log(`✅ Đã gửi thông báo update cho ${gameName}`);
   } catch (error) {
-    console.error(`❌ Lỗi khi gửi webhook cho ${gameName}:`, error.message);
+    console.error(`❌ Lỗi khi gửi webhook cho ${gameName}:`, error.response?.data || error.message);
   }
 }
 
@@ -48,7 +63,6 @@ async function checkGameUpdate(game) {
   }
 
   try {
-    // BỎ &key=${steamAPIKey}
     const res = await axios.get(
       `https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=${appId}&count=1&maxlength=300`
     );
