@@ -170,15 +170,28 @@ async function getGameBuildId(appId) {
 // 🆕 Lấy thông tin chi tiết game từ Steam Store API
 async function getGameDetails(appId) {
   try {
-    const res = await axios.get(`https://store.steampowered.com/api/appdetails?appids=${appId}`, {
-      timeout: 5000
+    const res = await axios.get(`https://store.steampowered.com/api/appdetails?appids=${appId}&cc=us&l=english`, {
+      timeout: 8000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
     });
     
     const gameData = res.data[appId]?.data;
-    if (!gameData) return null;
+    if (!gameData) {
+      console.log(`⚠️ Không lấy được game details cho AppID ${appId}`);
+      return null;
+    }
+    
+    // Debug: log ra để kiểm tra
+    if (gameData.header_image) {
+      console.log(`✅ Tìm thấy ảnh cho AppID ${appId}: ${gameData.header_image}`);
+    } else {
+      console.log(`❌ Không có ảnh cho AppID ${appId}`);
+    }
     
     return {
-      headerImage: gameData.header_image || null,
+      headerImage: gameData.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`,
       genres: gameData.genres?.map(g => g.description) || [],
       categories: gameData.categories?.map(c => c.description) || [],
       developers: gameData.developers || [],
@@ -186,7 +199,16 @@ async function getGameDetails(appId) {
       releaseDate: gameData.release_date?.date || null
     };
   } catch (error) {
-    return null;
+    console.error(`❌ Lỗi lấy game details cho AppID ${appId}:`, error.message);
+    // Fallback: dùng URL ảnh trực tiếp từ Steam CDN
+    return {
+      headerImage: `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`,
+      genres: [],
+      categories: [],
+      developers: [],
+      publishers: [],
+      releaseDate: null
+    };
   }
 }
 
@@ -260,7 +282,10 @@ async function createDiscordPayload(gameName, news, appId, oldBuildId, newBuildI
     
     description: `${summary}${buildChangeText}${tagsText}`,
     
-    image: gameDetails?.headerImage ? { url: gameDetails.headerImage } : undefined,
+    // ✅ Đảm bảo luôn có ảnh
+    image: {
+      url: gameDetails?.headerImage || `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`
+    },
     
     footer: {
       text: `Hôm nay lúc ${timeStr}`,
@@ -363,6 +388,9 @@ async function checkGameUpdate(game, index, total) {
       if (!latestNews) return;
 
       const newNewsId = latestNews.gid;
+      
+      // Delay trước khi lấy Build ID để tránh rate limit
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // Lấy Build ID hiện tại
       const currentBuildId = await getGameBuildId(appId);
