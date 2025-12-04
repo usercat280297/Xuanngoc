@@ -1,5 +1,5 @@
 [
-  { "name": "Hogwarts Legacy" },
-  { "name": "Cyberpunk 2077" },
-  { "name": "Elden Ring" }
+  { "name": "Hogwarts Legacy", "appId": 990080 },
+  { "name": "Cyberpunk 2077", "appId": 1091500 },
+  { "name": "Elden Ring", "appId": 1245620 }
 ]
