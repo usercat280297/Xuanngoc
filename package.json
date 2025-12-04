@@ -1,9 +1,9 @@
 {
   "name": "xuan-ngoc",
   "version": "1.0.0",
-  "main": "auto-update.js",
+  "main": "auto-update-queue.js",
   "scripts": {
-    "start": "node auto-update.js"
+    "start": "node auto-update-queue.js"
   },
   "dependencies": {
     "axios": "^1.13.2",
