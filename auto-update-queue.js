@@ -6,11 +6,11 @@ const webhookURL = process.env.WEBHOOK_URL;
 
 // ⚙️ CẤU HÌNH - Tối ưu cho MANY GAMES (10k-70k)
 const CONFIG = {
-  CHECK_INTERVAL: 12 * 60 * 60 * 1000, // Check tất cả games mỗi 12 giờ (tăng lên vì nhiều game)
-  MESSAGE_INTERVAL: 2 * 60 * 1000,     // Gửi Discord mỗi 2 phút (nhanh hơn 1 chút)
-  STEAM_DELAY: 1000,                     // 0.6s giữa mỗi Steam API call (nhanh hơn)
-  MAX_RETRIES: 1,                       // Retry tối đa 3 lần nếu lỗi
-  SAVE_STATE_INTERVAL: 1000,            // Lưu state mỗi 1000 games (tránh mất data)
+  CHECK_INTERVAL: 12 * 60 * 60 * 1000,
+  MESSAGE_INTERVAL: 2 * 60 * 1000,
+  STEAM_DELAY: 1000,
+  MAX_RETRIES: 1,
+  SAVE_STATE_INTERVAL: 1000,
 };
 
 let games = [];
@@ -61,80 +61,118 @@ async function getGameImage(appId) {
   }
 }
 
-// Tạo payload Discord với format ĐẸP + EMOJI + ẢNH TO
-async function createDiscordPayload(gameName, news, appId) {
-  const gameImage = await getGameImage(appId);
-  
-  // 1. Xử lý nội dung text cho sạch sẽ
-  let rawContents = news.contents || '';
-  let cleanContents = rawContents.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-  
-  // Tiêu đề bản cập nhật
-  const updateTitle = news.title || 'New Update Available';
-  
-  // Tạo nội dung tóm tắt (giới hạn 350 ký tự cho gọn)
-  let summary = cleanContents;
-  if (summary.length > 350) {
-    summary = summary.substring(0, 347) + '...';
+// ========== THÊM MỚI: Lấy Build ID từ news content ==========
+async function getDetailedBuildInfo(appId) {
+  try {
+    const res = await axios.get(
+      `https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=${appId}&count=3&maxlength=5000`,
+      { timeout: 10000 }
+    );
+    
+    const newsItems = res.data.appnews?.newsitems || [];
+    
+    // Tìm tin tức có chứa Build ID
+    for (const item of newsItems) {
+      const content = (item.contents || item.title || '').toLowerCase();
+      
+      // Pattern: "12345678 → 23456789" hoặc "Build ID: 12345678"
+      const changeMatch = content.match(/(\d{7,})\s*(?:→|->|➡️|➡|to|=>)\s*(\d{7,})/i);
+      if (changeMatch) {
+        return {
+          oldBuild: changeMatch[1],
+          newBuild: changeMatch[2]
+        };
+      }
+      
+      // Pattern: "Build ID: 12345678"
+      const singleMatch = content.match(/build\s*id[:\s]+(\d{7,})/i);
+      if (singleMatch) {
+        return {
+          newBuild: singleMatch[1]
+        };
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    return null;
   }
-  if (!summary) summary = "No description available.";
+}
 
-  // Format thời gian
+// ========== SỬA LẠI: createDiscordPayload - Giống y chang ảnh mẫu ==========
+async function createDiscordPayload(gameName, news, appId) {
+  // Lấy ảnh và build info song song
+  const [gameImage, buildInfo] = await Promise.all([
+    getGameImage(appId),
+    getDetailedBuildInfo(appId)
+  ]);
+  
+  // Xử lý mô tả
+  let description = news.contents || news.title || 'A new version of the game has been released on the public branch.';
+  description = description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  // Loại bỏ Build ID khỏi description
+  description = description.replace(/build\s*id[:\s]+\d+/gi, '');
+  description = description.replace(/\d{7,}\s*(?:→|->|➡️|➡)\s*\d{7,}/g, '');
+  description = description.trim();
+  
+  if (description.length > 250) {
+    description = description.substring(0, 247) + '...';
+  }
+  
+  // Format thời gian: "10:58 CH"
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('vi-VN', { 
-    hour: '2-digit', 
-    minute: '2-digit',
-    hour12: false
-  });
+  const hour = now.getHours();
+  const minute = now.getMinutes().toString().padStart(2, '0');
+  const period = hour >= 12 ? 'CH' : 'SA';
+  const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+  const timeStr = `${displayHour}:${minute} ${period}`;
   
   const newsLink = news.url || `https://store.steampowered.com/news/app/${appId}`;
 
+  // Tạo embed
+  const embed = {
+    author: {
+      name: "Game Update Detected"
+    },
+    color: 0x8B7EE8, // Màu tím như ảnh
+    title: gameName,
+    url: newsLink, // Title có link
+    description: description,
+    fields: [],
+    image: gameImage ? { url: gameImage } : undefined,
+    footer: {
+      text: `Hôm nay lúc ${timeStr}`
+    },
+    timestamp: new Date().toISOString()
+  };
+
+  // Thêm Build ID field nếu có
+  if (buildInfo) {
+    if (buildInfo.oldBuild && buildInfo.newBuild) {
+      embed.fields.push({
+        name: "Build ID Change",
+        value: `${buildInfo.oldBuild} ➡️ ${buildInfo.newBuild}`,
+        inline: false
+      });
+    } else if (buildInfo.newBuild) {
+      embed.fields.push({
+        name: "Build ID",
+        value: buildInfo.newBuild,
+        inline: false
+      });
+    }
+  }
+
   return {
-    embeds: [{
-      // Phần Author: Icon nhỏ + Dòng chữ nhỏ trên cùng
-      author: {
-        name: "Steam Update Detected",
-        icon_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/2048px-Steam_icon_logo.svg.png"
-      },
-      color: 0x57F287, // Màu xanh lá sáng (Giống hình mẫu của bạn)
-      
-      // Tiêu đề chính: Tên Game
-      title: `${gameName}`,
-      url: newsLink, // Bấm vào tên game cũng ra link
-      
-      // Phần mô tả chính: Dùng in đậm và Emoji checkmark
-      description: `✅ **${updateTitle}**\n\n${summary}`,
-      
-      // Các trường thông tin bổ sung (Fields)
-      fields: [
-        {
-          name: "🔗 View Patch Notes", // Mục link riêng như bạn yêu cầu
-          value: `[Click here to read full details on Steam](${newsLink})`,
-          inline: false
-        }
-      ],
-      
-      // Hình ảnh to ở dưới cùng
-      image: gameImage ? { url: gameImage } : undefined,
-      
-      // Footer: Thời gian
-      footer: {
-        text: `Cập nhật lúc ${timeStr} • Steam News`,
-        icon_url: "https://cdn.discordapp.com/emojis/843169324686409749.png" // Icon đồng hồ hoặc steam nhỏ
-      }
-    }],
-    
-    // Nút bấm bên dưới (Giữ lại để tiện thao tác nhanh)
+    embeds: [embed],
     components: [{
       type: 1,
       components: [{
         type: 2,
-        style: 5, // Style 5 là dạng Link Button (Xám)
-        label: "Open on Steam",
-        url: newsLink,
-        emoji: {
-          name: "🚀"
-        }
+        style: 5,
+        label: "View Patch",
+        url: newsLink
       }]
     }]
   };
