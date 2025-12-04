@@ -8,17 +8,67 @@ const webhookURL = process.env.WEBHOOK_URL;
 const CONFIG = {
   CHECK_INTERVAL: 12 * 60 * 60 * 1000, // Check tất cả games mỗi 12 giờ
   MESSAGE_INTERVAL: 2 * 60 * 1000,     // Gửi Discord mỗi 2 phút
-  STEAM_DELAY: 1200,                     // 1.2s giữa mỗi Steam API call (tăng vì gọi thêm SteamDB)
-  STEAMDB_DELAY: 1500,                   // 1.5s delay riêng cho SteamDB API (rate limit)
+  STEAM_DELAY: 1200,                     // 1.2s giữa mỗi Steam API call
+  STEAMDB_DELAY: 1500,                   // 1.5s delay riêng cho SteamDB API
   MAX_RETRIES: 1,                       // Retry tối đa 3 lần nếu lỗi
   SAVE_STATE_INTERVAL: 1000,            // Lưu state mỗi 1000 games
 };
 
+// 🎨 EMOJI CHO TAGS
+const TAG_EMOJIS = {
+  // Thể loại
+  'Action': '⚔️',
+  'Adventure': '🗺️',
+  'RPG': '🎭',
+  'Strategy': '🧠',
+  'Simulation': '🎮',
+  'Horror': '🧟',
+  'Survival': '🏕️',
+  'Puzzle': '🧩',
+  'Racing': '🏎️',
+  'Sports': '⚽',
+  'Shooter': '🔫',
+  'Fighting': '🥊',
+  'Platformer': '🦘',
+  'Sandbox': '🏗️',
+  'MOBA': '🏆',
+  'Battle Royale': '🎯',
+  'Card Game': '🃏',
+  'Tower Defense': '🗼',
+  'Roguelike': '🎲',
+  'Metroidvania': '🦇',
+  
+  // Chế độ chơi
+  'Single-player': '🎮',
+  'Multiplayer': '👥',
+  'Co-op': '🤝',
+  'PvP': '⚔️',
+  'Online': '🌐',
+  'Local Co-op': '🏠',
+  'Cross-Platform': '🔄',
+  
+  // Tính năng
+  'Open World': '🌍',
+  'Story Rich': '📖',
+  'Atmospheric': '🌫️',
+  'Indie': '💎',
+  'Early Access': '🚧',
+  'VR': '🥽',
+  'Controller': '🎮',
+  'Achievements': '🏅',
+  'Steam Cloud': '☁️',
+  'Workshop': '🔧',
+  'Trading Cards': '🎴',
+  
+  // Mặc định
+  'default': '🏷️'
+};
+
 let games = [];
 let lastNewsIds = {};
-let lastBuildIds = {}; // 🆕 Lưu Build ID của mỗi game
+let lastBuildIds = {};
 const STATE_FILE = 'last_news_state.json';
-const BUILD_STATE_FILE = 'last_build_state.json'; // 🆕 File lưu Build ID
+const BUILD_STATE_FILE = 'last_build_state.json';
 
 // Queue chứa các tin nhắn cần gửi
 const messageQueue = [];
@@ -44,7 +94,7 @@ try {
   console.log("⚠️ Bắt đầu với news state mới");
 }
 
-// 🆕 Load build state
+// Load build state
 try {
   if (fs.existsSync(BUILD_STATE_FILE)) {
     const buildData = fs.readFileSync(BUILD_STATE_FILE, 'utf8');
@@ -58,7 +108,7 @@ try {
 function saveState() {
   try {
     fs.writeFileSync(STATE_FILE, JSON.stringify(lastNewsIds, null, 2));
-    fs.writeFileSync(BUILD_STATE_FILE, JSON.stringify(lastBuildIds, null, 2)); // 🆕 Lưu Build ID
+    fs.writeFileSync(BUILD_STATE_FILE, JSON.stringify(lastBuildIds, null, 2));
   } catch (error) {
     console.error("❌ Lỗi lưu state:", error.message);
   }
@@ -75,7 +125,6 @@ async function getGameBuildId(appId) {
       timeout: 8000
     });
 
-    // Lấy Build ID từ public branch
     const publicBranch = steamDbRes.data?.data?.depots?.branches?.public;
     if (publicBranch?.buildid) {
       return publicBranch.buildid.toString();
@@ -89,7 +138,6 @@ async function getGameBuildId(appId) {
       timeout: 8000
     });
 
-    // Parse HTML để tìm Build ID (regex matching)
     const buildIdMatch = htmlRes.data.match(/Public Branch.*?BuildID:\s*(\d+)/s);
     if (buildIdMatch && buildIdMatch[1]) {
       return buildIdMatch[1];
@@ -97,7 +145,6 @@ async function getGameBuildId(appId) {
 
     return null;
   } catch (error) {
-    // Nếu lỗi, thử method 3: Dùng Steam Store API (ít reliable hơn)
     try {
       const storeRes = await axios.get(`https://store.steampowered.com/api/appdetails?appids=${appId}`, {
         timeout: 5000
@@ -105,7 +152,6 @@ async function getGameBuildId(appId) {
       
       const depots = storeRes.data[appId]?.data?.depots;
       if (depots) {
-        // Tìm depot có branch public
         for (const depotId in depots) {
           const depot = depots[depotId];
           if (depot?.manifests?.public) {
@@ -114,28 +160,45 @@ async function getGameBuildId(appId) {
         }
       }
     } catch (fallbackError) {
-      // Ignore fallback errors
+      // Ignore
     }
     
     return null;
   }
 }
 
-// Lấy hình ảnh game
-async function getGameImage(appId) {
+// 🆕 Lấy thông tin chi tiết game từ Steam Store API
+async function getGameDetails(appId) {
   try {
     const res = await axios.get(`https://store.steampowered.com/api/appdetails?appids=${appId}`, {
       timeout: 5000
     });
-    return res.data[appId]?.data?.header_image || null;
+    
+    const gameData = res.data[appId]?.data;
+    if (!gameData) return null;
+    
+    return {
+      headerImage: gameData.header_image || null,
+      genres: gameData.genres?.map(g => g.description) || [],
+      categories: gameData.categories?.map(c => c.description) || [],
+      developers: gameData.developers || [],
+      publishers: gameData.publishers || [],
+      releaseDate: gameData.release_date?.date || null
+    };
   } catch (error) {
     return null;
   }
 }
 
-// 🆕 Tạo payload Discord với Build ID Change
+// 🎨 Tạo tag với emoji
+function createTagWithEmoji(tagName) {
+  const emoji = TAG_EMOJIS[tagName] || TAG_EMOJIS['default'];
+  return `${emoji} ${tagName}`;
+}
+
+// 🆕 Tạo payload Discord với đầy đủ thông tin như ảnh mẫu
 async function createDiscordPayload(gameName, news, appId, oldBuildId, newBuildId) {
-  const gameImage = await getGameImage(appId);
+  const gameDetails = await getGameDetails(appId);
   
   // 1. Xử lý nội dung text
   let rawContents = news.contents || '';
@@ -144,8 +207,8 @@ async function createDiscordPayload(gameName, news, appId, oldBuildId, newBuildI
   const updateTitle = news.title || 'New Update Available';
   
   let summary = cleanContents;
-  if (summary.length > 350) {
-    summary = summary.substring(0, 347) + '...';
+  if (summary.length > 300) {
+    summary = summary.substring(0, 297) + '...';
   }
   if (!summary) summary = "A new version of the game has been released on the public branch.";
 
@@ -158,33 +221,76 @@ async function createDiscordPayload(gameName, news, appId, oldBuildId, newBuildI
   
   const newsLink = news.url || `https://store.steampowered.com/news/app/${appId}`;
 
-  // 🆕 Tạo phần Build ID Change
+  // 🆕 Build ID Change với icon
   let buildChangeText = '';
   if (oldBuildId && newBuildId && oldBuildId !== newBuildId) {
-    buildChangeText = `\n\n**Build ID Change**\n${oldBuildId} ➡️ ${newBuildId}`;
+    buildChangeText = `\n\n**Build ID Change**\n\`${oldBuildId}\` ➡️ \`${newBuildId}\``;
+  }
+
+  // 🆕 Tạo phần Tags đẹp
+  let tagsText = '';
+  if (gameDetails) {
+    const allTags = [];
+    
+    // Lấy tối đa 6 tags quan trọng nhất
+    const importantGenres = gameDetails.genres.slice(0, 3);
+    const importantCategories = gameDetails.categories
+      .filter(cat => ['Single-player', 'Multiplayer', 'Co-op', 'Online Co-Op', 'PvP'].includes(cat))
+      .slice(0, 3);
+    
+    [...importantGenres, ...importantCategories].forEach(tag => {
+      allTags.push(createTagWithEmoji(tag));
+    });
+    
+    if (allTags.length > 0) {
+      tagsText = `\n\n${allTags.join(' • ')}`;
+    }
+  }
+
+  // 🆕 Embed đầy đủ như ảnh mẫu
+  const embed = {
+    author: {
+      name: "Game Update Detected",
+      icon_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/2048px-Steam_icon_logo.svg.png"
+    },
+    color: 0x9B59B6, // Màu tím
+    
+    title: gameName,
+    url: newsLink,
+    
+    description: `${summary}${buildChangeText}${tagsText}`,
+    
+    image: gameDetails?.headerImage ? { url: gameDetails.headerImage } : undefined,
+    
+    footer: {
+      text: `Hôm nay lúc ${timeStr}`,
+      icon_url: "https://cdn.discordapp.com/emojis/843169324686409749.png"
+    },
+    
+    timestamp: new Date().toISOString()
+  };
+
+  // 🆕 Thêm fields nếu có thông tin
+  embed.fields = [];
+  
+  if (gameDetails?.developers && gameDetails.developers.length > 0) {
+    embed.fields.push({
+      name: "👨‍💻 Developer",
+      value: gameDetails.developers.slice(0, 2).join(', '),
+      inline: true
+    });
+  }
+  
+  if (gameDetails?.releaseDate) {
+    embed.fields.push({
+      name: "📅 Release Date",
+      value: gameDetails.releaseDate,
+      inline: true
+    });
   }
 
   return {
-    embeds: [{
-      author: {
-        name: "Game Update Detected",
-        icon_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/2048px-Steam_icon_logo.svg.png"
-      },
-      color: 0x9B59B6, // Màu tím giống ảnh mẫu
-      
-      title: `${gameName}`,
-      url: newsLink,
-      
-      // 🆕 Thêm Build ID Change vào description
-      description: `${summary}${buildChangeText}`,
-      
-      image: gameImage ? { url: gameImage } : undefined,
-      
-      footer: {
-        text: `Hôm nay lúc ${timeStr}`,
-        icon_url: "https://cdn.discordapp.com/emojis/843169324686409749.png"
-      }
-    }],
+    embeds: [embed],
     
     components: [{
       type: 1,
@@ -214,8 +320,8 @@ async function processQueue() {
       message.gameName, 
       message.news, 
       message.appId,
-      message.oldBuildId, // 🆕 Truyền Build ID cũ
-      message.newBuildId  // 🆕 Truyền Build ID mới
+      message.oldBuildId,
+      message.newBuildId
     );
     await axios.post(webhookURL, payload);
     console.log(`✅ [${messageQueue.length} còn lại] Đã gửi: ${message.gameName}`);
@@ -229,7 +335,7 @@ async function processQueue() {
   }
 }
 
-// 🆕 Check game update với Build ID tracking
+// Check game update với Build ID tracking
 async function checkGameUpdate(game, index, total) {
   const { name, appId } = game;
   if (!appId) return;
@@ -258,7 +364,7 @@ async function checkGameUpdate(game, index, total) {
 
       const newNewsId = latestNews.gid;
       
-      // 🆕 Lấy Build ID hiện tại
+      // Lấy Build ID hiện tại
       const currentBuildId = await getGameBuildId(appId);
 
       // Lần đầu: chỉ lưu, không gửi
@@ -270,7 +376,7 @@ async function checkGameUpdate(game, index, total) {
         return;
       }
 
-      // 🆕 Có update MỚI: thêm vào queue với Build ID
+      // Có update MỚI: thêm vào queue với Build ID
       if (newNewsId !== lastNewsIds[name]) {
         const oldBuildId = lastBuildIds[name] || null;
         
@@ -283,8 +389,8 @@ async function checkGameUpdate(game, index, total) {
           gameName: name,
           news: latestNews,
           appId: appId,
-          oldBuildId: oldBuildId,        // 🆕
-          newBuildId: currentBuildId     // 🆕
+          oldBuildId: oldBuildId,
+          newBuildId: currentBuildId
         });
         
         lastNewsIds[name] = newNewsId;
@@ -336,7 +442,7 @@ async function checkAllGames() {
 
 // Main
 (async () => {
-  console.log("🚀 Steam News Monitor với Build ID Tracking!");
+  console.log("🚀 Steam News Monitor với Build ID Tracking + Enhanced UI!");
   console.log(`📊 Monitoring: ${games.length} games`);
   console.log(`⏰ Check all games mỗi: ${CONFIG.CHECK_INTERVAL / 60 / 60 / 1000} giờ`);
   console.log(`📬 Gửi Discord mỗi: ${CONFIG.MESSAGE_INTERVAL / 60 / 1000} phút`);

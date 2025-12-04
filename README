@@ -1,0 +1,25 @@
+# Discord Game Update Bot 🎮
+
+Bot này theo dõi tin tức cập nhật mới nhất của các game trên Steam và gửi thông báo vào Discord qua Webhook.  
+Chạy bằng Node.js, sử dụng Steam Web API, và có thể deploy 24/7 trên Railway.
+
+---
+
+## 🚀 Tính năng
+- Theo dõi nhiều game cùng lúc (chỉ cần nhập tên game trong `games.json`)
+- Tự động tra AppID từ tên game qua Steam API
+- Lấy tin tức cập nhật mới nhất bằng `GetNewsForApp`
+- Gửi thông báo embed đẹp vào Discord webhook
+- Chạy liên tục 24/7 trên Railway
+
+---
+
+
+---
+
+## ⚙️ Cài đặt local
+
+1. Clone repo:
+   ```bash
+   git clone (URL)
+   cd (to repo)
