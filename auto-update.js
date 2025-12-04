@@ -3,7 +3,7 @@ const fs = require('fs');
 require('dotenv').config();
 
 const webhookURL = process.env.WEBHOOK_URL;
-const steamAPIKey = process.env.STEAM_API_KEY;
+// XÓA dòng này: const steamAPIKey = process.env.STEAM_API_KEY;
 
 let games = [];
 try {
@@ -18,19 +18,6 @@ try {
 }
 
 let lastNewsIds = {};
-
-// Tìm AppID từ tên game
-async function getAppIdByName(gameName) {
-  try {
-    const res = await axios.get("https://api.steampowered.com/ISteamApps/GetAppList/v2/");
-    const apps = res.data.applist.apps;
-    const app = apps.find(app => app.name.toLowerCase() === gameName.toLowerCase());
-    return app ? app.appid : null;
-  } catch (error) {
-    console.error(`❌ Lỗi khi tra AppID cho ${gameName}:`, error.message);
-    return null;
-  }
-}
 
 // Gửi thông báo Discord
 async function sendGameUpdate(gameName, news) {
@@ -53,34 +40,35 @@ async function sendGameUpdate(gameName, news) {
 }
 
 // Kiểm tra tin tức mới
-async function checkGameUpdate(gameName) {
-  const appId = await getAppIdByName(gameName);
+async function checkGameUpdate(game) {
+  const { name, appId } = game;
   if (!appId) {
-    console.error(`⚠️ Không tìm thấy AppID cho ${gameName}`);
+    console.error(`⚠️ Không tìm thấy AppID cho ${name}`);
     return;
   }
 
   try {
+    // BỎ &key=${steamAPIKey}
     const res = await axios.get(
-      `https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=${appId}&count=1&maxlength=300&key=${steamAPIKey}`
+      `https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=${appId}&count=1&maxlength=300`
     );
 
     const latestNews = res.data.appnews.newsitems[0];
     if (!latestNews) {
-      console.log(`ℹ️ Không có tin tức nào cho ${gameName}`);
+      console.log(`ℹ️ Không có tin tức nào cho ${name}`);
       return;
     }
 
     const newId = latestNews.gid;
 
-    if (!lastNewsIds[gameName] || newId !== lastNewsIds[gameName]) {
-      await sendGameUpdate(gameName, latestNews);
-      lastNewsIds[gameName] = newId;
+    if (!lastNewsIds[name] || newId !== lastNewsIds[name]) {
+      await sendGameUpdate(name, latestNews);
+      lastNewsIds[name] = newId;
     } else {
-      console.log(`⏸ Không có update mới cho ${gameName}`);
+      console.log(`⏸ Không có update mới cho ${name}`);
     }
   } catch (error) {
-    console.error(`❌ Lỗi khi kiểm tra ${gameName}:`, error.message);
+    console.error(`❌ Lỗi khi kiểm tra ${name}:`, error.message);
   }
 }
 
@@ -88,12 +76,12 @@ async function checkGameUpdate(gameName) {
 (async () => {
   console.log("🚀 Bot khởi động...");
   for (const game of games) {
-    await checkGameUpdate(game.name);
+    await checkGameUpdate(game);
   }
 
   setInterval(async () => {
     for (const game of games) {
-      await checkGameUpdate(game.name);
+      await checkGameUpdate(game);
     }
   }, 10 * 60 * 1000);
 })();
