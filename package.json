@@ -1,0 +1,12 @@
+{
+  "name": "Xuân ngọc",
+  "version": "1.0.0",
+  "main": "auto-update.js",
+  "scripts": {
+    "start": "node auto-update.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "dotenv": "^16.4.5"
+  }
+}
