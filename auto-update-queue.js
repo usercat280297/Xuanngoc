@@ -61,19 +61,25 @@ async function getGameImage(appId) {
   }
 }
 
-// Tạo payload Discord với format ĐẸP
+// Tạo payload Discord với format ĐẸP + EMOJI + ẢNH TO
 async function createDiscordPayload(gameName, news, appId) {
   const gameImage = await getGameImage(appId);
   
-  // Parse description từ news
-  let description = news.contents || news.title || 'A new version of the game has been released on the public branch.';
-  description = description.replace(/<[^>]*>/g, '').trim();
+  // 1. Xử lý nội dung text cho sạch sẽ
+  let rawContents = news.contents || '';
+  let cleanContents = rawContents.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   
-  if (description.length > 300) {
-    description = description.substring(0, 297) + '...';
+  // Tiêu đề bản cập nhật
+  const updateTitle = news.title || 'New Update Available';
+  
+  // Tạo nội dung tóm tắt (giới hạn 350 ký tự cho gọn)
+  let summary = cleanContents;
+  if (summary.length > 350) {
+    summary = summary.substring(0, 347) + '...';
   }
-  
-  // Format time theo kiểu "Hôm nay lúc 9:01 SA"
+  if (!summary) summary = "No description available.";
+
+  // Format thời gian
   const now = new Date();
   const timeStr = now.toLocaleTimeString('vi-VN', { 
     hour: '2-digit', 
@@ -85,28 +91,49 @@ async function createDiscordPayload(gameName, news, appId) {
 
   return {
     embeds: [{
+      // Phần Author: Icon nhỏ + Dòng chữ nhỏ trên cùng
       author: {
-        name: "Game Update Detected",
-        icon_url: "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/593110/0bbb630d63262dd66d2fdd0f7d37e8661a410075.jpg"
+        name: "Steam Update Detected",
+        icon_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Steam_icon_logo.svg/2048px-Steam_icon_logo.svg.png"
       },
-      color: 0x5865F2, // Discord blurple color
-      title: gameName,
-      description: description,
+      color: 0x57F287, // Màu xanh lá sáng (Giống hình mẫu của bạn)
+      
+      // Tiêu đề chính: Tên Game
+      title: `${gameName}`,
+      url: newsLink, // Bấm vào tên game cũng ra link
+      
+      // Phần mô tả chính: Dùng in đậm và Emoji checkmark
+      description: `✅ **${updateTitle}**\n\n${summary}`,
+      
+      // Các trường thông tin bổ sung (Fields)
+      fields: [
+        {
+          name: "🔗 View Patch Notes", // Mục link riêng như bạn yêu cầu
+          value: `[Click here to read full details on Steam](${newsLink})`,
+          inline: false
+        }
+      ],
+      
+      // Hình ảnh to ở dưới cùng
       image: gameImage ? { url: gameImage } : undefined,
+      
+      // Footer: Thời gian
       footer: {
-        text: `Hôm nay lúc ${timeStr}`,
-        icon_url: "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/steamworks_docs/english/steam_icon.png"
+        text: `Cập nhật lúc ${timeStr} • Steam News`,
+        icon_url: "https://cdn.discordapp.com/emojis/843169324686409749.png" // Icon đồng hồ hoặc steam nhỏ
       }
     }],
+    
+    // Nút bấm bên dưới (Giữ lại để tiện thao tác nhanh)
     components: [{
       type: 1,
       components: [{
         type: 2,
-        style: 5,
-        label: "View Patch",
+        style: 5, // Style 5 là dạng Link Button (Xám)
+        label: "Open on Steam",
         url: newsLink,
         emoji: {
-          name: "🔗"
+          name: "🚀"
         }
       }]
     }]
